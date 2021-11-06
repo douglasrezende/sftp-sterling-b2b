@@ -1,0 +1,297 @@
+<process name = "TEST_SFTP">
+  <rule name="checkResponseCode">
+    <condition>contains(/ProcessData/ServerResponse/ResponseStatusCode/text(),&apos;200&apos;)</condition>
+  </rule>
+
+  <rule name="hasSession">
+    <condition>count(//SessionToken/text())&gt;0</condition>
+  </rule>
+
+  <rule name="fileHasBeenProcessed">
+    <condition>count(/ProcessData/Message/MessageName/text())&gt; 0</condition>
+  </rule>
+
+  <rule name="hasFile">
+    <condition>number(//totalFiles) &gt; 0</condition>
+  </rule>
+
+  <rule name="checkLoop">
+    <condition>number(/ProcessData/count/text()) &lt;= number(/ProcessData/totalFiles/text())</condition>
+  </rule>
+
+  <rule name="isValidName">
+    <condition>count(//cnpj) &gt; 0</condition>
+  </rule>
+
+  <rule name="isPropertyNotFoundError">
+    <condition>contains(/ProcessData/ERROR_SERVICE/ADV_STATUS/text(),&apos;Property not found&apos;)</condition>
+  </rule>
+
+  <sequence name="Sequence Start">
+    <assign name="Assign" to="count">1</assign>
+    <operation name="Timestamp Utility">
+      <participant name="TimestampUtilService"/>
+      <output message="TimestampUtilServiceTypeInputMessage">
+        <assign to="." from="*"></assign>
+        <assign to="action">current_time</assign>
+        <assign to="format">yyyyMMddHHmmss</assign>
+      </output>
+      <input message="inmsg">
+        <assign to="." from="*"></assign>
+      </input>
+    </operation>
+
+    <operation name="SFTP Client Begin Session Service">
+      <participant name="SFTPClientBeginSession"/>
+      <output message="SFTPClientBeginSessionServiceTypeInputMessage">
+        <assign to="." from="*"></assign>
+        <assign to="KnownHostKeyId">56563717c9b0ae4f5node1</assign>
+        <assign to="PreferredAuthenticationMethod">password</assign>
+        <assign to="RemoteHost">serverIP</assign>
+        <assign to="RemotePasswd">PASSWORD</assign>
+        <assign to="RemotePort">22</assign>
+        <assign to="RemoteUserId">ftpuser</assign>
+        <assign to="SFTPClientAdapter">SFTPClientAdapter</assign>
+        <assign to="UsingRevealedPasswd">true</assign>
+      </output>
+      <input message="inmsg">
+        <assign to="." from="*"></assign>
+      </input>
+    </operation>
+
+    <operation name="SFTP Client CD Service">
+      <participant name="SFTPClientCd"/>
+      <output message="SFTPClientCdServiceTypeInputMessage">
+        <assign to="." from="*"></assign>
+        <assign to="Directory">/home/ftpuser/DIRETORIO1</assign>
+        <assign to="SessionToken" from="/ProcessData/SessionToken/text()"></assign>
+      </output>
+      <input message="inmsg">
+        <assign to="." from="*"></assign>
+      </input>
+    </operation>
+
+    <operation name="SFTP Client LIST Service">
+      <participant name="SFTPClientList"/>
+      <output message="SFTPClientListServiceTypeInputMessage">
+        <assign to="." from="*"></assign>
+        <assign to="RemoteFileName">*txt</assign>
+        <assign to="ResponseTimeout">1800</assign>
+        <assign to="SessionToken" from="/ProcessData/SessionToken/text()"></assign>
+      </output>
+      <input message="inmsg">
+        <assign to="." from="*"></assign>
+        <assign to="Status" from="Status_Rpt(&apos;Report&apos;)"></assign>
+      </input>
+    </operation>
+
+    <assign name="Assign" to="totalFiles" from="count(/ProcessData/Files/File/Name/text())"></assign>
+    <choice name="choice">
+      <select>
+        <case ref="hasFile" activity="condition"/>
+      </select>
+
+      <sequence name="condition">
+        <choice name="loop">
+          <select>
+            <case ref="checkLoop" activity="0"/>
+          </select>
+
+          <sequence name="0">
+            <operation name="Mailbox Query Service">
+              <participant name="MailboxQuery"/>
+              <output message="MailboxQueryServiceTypeInputMessage">
+                <assign to="." from="*"></assign>
+                <assign to="MailboxPath">/CONTROLE</assign>
+                <assign to="MessageNamePattern" from="/ProcessData/Files/File[number(/ProcessData/count/text())]/Name/text()"></assign>
+              </output>
+              <input message="inmsg">
+                <assign to="." from="*"></assign>
+              </input>
+            </operation>
+
+            <choice name="Choice Start">
+              <select>
+                <case ref="fileHasBeenProcessed" negative="true" activity="query"/>
+              </select>
+
+              <sequence name="query">
+                <operation name="SFTP Client GET Service">
+                  <participant name="SFTPClientGet"/>
+                  <output message="SFTPClientGetServiceTypeInputMessage">
+                    <assign to="." from="*"></assign>
+                    <assign to="RemoteFileName" from="concat(&apos;/home/ftpuser/DIRETORIO1/&apos;,/ProcessData/Files/File[number(/ProcessData/count/text())]/Name/text())"></assign>
+                    <assign to="ResponseTimeout">1800</assign>
+                    <assign to="SessionToken" from="/ProcessData/SessionToken/text()"></assign>
+                  </output>
+                  <input message="inmsg">
+                    <assign to="." from="*"></assign>
+                    <assign to="Status" from="Status_Rpt(&apos;Report&apos;)"></assign>
+                  </input>
+                </operation>
+
+                <assign name="Assign" to="cnpj" from="sci-get-property(&apos;B2B&apos;,substring(/ProcessData/Files/File[number(/ProcessData/count/text())]/Name/text(),1,8))"></assign>
+                <operation name="SFTP Client PUT Service">
+                  <participant name="SFTPClientPut"/>
+                  <output message="SFTPClientPutServiceTypeInputMessage">
+                    <assign to="." from="*"></assign>
+                    <assign to="RemoteFileName" from="concat(&apos;/home/ftpuser/DIRETORIO2/&apos;,/ProcessData/cnpj/text(),&apos;_&apos;,/ProcessData/time/text(),&apos;.txt&apos;)"></assign>
+                    <assign to="ResponseTimeout">1800</assign>
+                    <assign to="SessionToken" from="/ProcessData/SessionToken/text()"></assign>
+                  </output>
+                  <input message="inmsg">
+                    <assign to="." from="*"></assign>
+                  </input>
+                </operation>
+
+                <operation name="Set User Token">
+                  <participant name="SetUserToken"/>
+                  <output message="SetUserTokenServiceTypeInputMessage">
+                    <assign to="." from="*"></assign>
+                    <assign to="USER_TOKEN">admin</assign>
+                  </output>
+                  <input message="inmsg">
+                    <assign to="." from="*"></assign>
+                  </input>
+                </operation>
+
+                <operation name="Mailbox Add Service">
+                  <participant name="MailboxAdd"/>
+                  <output message="MailboxAddServiceTypeInputMessage">
+                    <assign to="." from="*"></assign>
+                    <assign to="DocumentId" from="/ProcessData/PrimaryDocument/@SCIObjectID"></assign>
+                    <assign to="MailboxPath">/CONTROLE</assign>
+                    <assign to="MessageName" from="/ProcessData/Files/File[number(/ProcessData/count/text())]/Name/text()"></assign>
+                  </output>
+                  <input message="inmsg">
+                    <assign to="." from="*"></assign>
+                  </input>
+                </operation>
+
+                <onFault>
+                  <sequence name="error_1">
+                    <assign name="Assign" to="erro">erro</assign>
+                    <choice name="Choice Start">
+                      <select>
+                        <case ref="isPropertyNotFoundError" activity="INVALID NAME"/>
+                      </select>
+
+                      <sequence name="INVALID NAME">
+                        <assign name="Assign" to="cnpj" from="concat(&apos;INVALIDO&apos;,/ProcessData/Files/File[number(/ProcessData/count/text())]/Name/text())"></assign>
+                        <operation name="SFTP Client PUT Service">
+                          <participant name="SFTPClientPut"/>
+                          <output message="SFTPClientPutServiceTypeInputMessage">
+                            <assign to="." from="*"></assign>
+                            <assign to="RemoteFileName" from="concat(&apos;/home/ftpuser/DIRETORIO2/&apos;,/ProcessData/cnpj/text(),&apos;_&apos;,/ProcessData/time/text(),&apos;.txt&apos;)"></assign>
+                            <assign to="ResponseTimeout">1800</assign>
+                            <assign to="SessionToken" from="/ProcessData/SessionToken/text()"></assign>
+                          </output>
+                          <input message="inmsg">
+                            <assign to="." from="*"></assign>
+                          </input>
+                        </operation>
+
+                        <operation name="Set User Token">
+                          <participant name="SetUserToken"/>
+                          <output message="SetUserTokenServiceTypeInputMessage">
+                            <assign to="." from="*"></assign>
+                            <assign to="USER_TOKEN">admin</assign>
+                          </output>
+                          <input message="inmsg">
+                            <assign to="." from="*"></assign>
+                          </input>
+                        </operation>
+
+                        <operation name="Mailbox Add Service">
+                          <participant name="MailboxAdd"/>
+                          <output message="MailboxAddServiceTypeInputMessage">
+                            <assign to="." from="*"></assign>
+                            <assign to="DocumentId" from="/ProcessData/PrimaryDocument/@SCIObjectID"></assign>
+                            <assign to="MailboxPath">/CONTROLE</assign>
+                            <assign to="MessageName" from="/ProcessData/Files/File[number(/ProcessData/count/text())]/Name/text()"></assign>
+                          </output>
+                          <input message="inmsg">
+                            <assign to="." from="*"></assign>
+                          </input>
+                        </operation>
+
+                        <operation name="Release Service">
+                          <participant name="ReleaseService"/>
+                          <output message="ReleaseServiceTypeInputMessage">
+                            <assign to="." from="*"></assign>
+                            <assign to="TARGET">Message|cnpj</assign>
+                          </output>
+                          <input message="inmsg">
+                            <assign to="." from="*"></assign>
+                          </input>
+                        </operation>
+
+                        <assign name="Assign" to="count" from="count + 1"></assign>
+                        <repeat name="Repeat" ref="loop"/>
+
+                      </sequence>
+                    </choice>
+                    <operation name="Business Process Exception">
+                      <participant name="BPExceptionService"/>
+                      <output message="BPExceptionServiceTypeInputMessage">
+                        <assign to="." from="*"></assign>
+                        <assign to="exceptionCode" from="concat(&apos;O ARQUIVO: &apos; ,/ProcessData/Files/File[number(/ProcessData/totalFiles/text())]/Name/text() , &apos; NAO FOI PROCESSADO&apos;)"></assign>
+                        <assign to="statusReport" from="concat(&apos;O ARQUIVO: &apos; ,/ProcessData/Files/File[number(/ProcessData/totalFiles/text())]/Name/text() , &apos; NAO FOI PROCESSADO&apos;)"></assign>
+                      </output>
+                      <input message="inmsg">
+                        <assign to="." from="*"></assign>
+                      </input>
+                    </operation>
+
+                  </sequence>
+                </onFault>
+              </sequence>
+            </choice>
+            <operation name="Release Service">
+              <participant name="ReleaseService"/>
+              <output message="ReleaseServiceTypeInputMessage">
+                <assign to="." from="*"></assign>
+                <assign to="TARGET">Message|cnpj</assign>
+              </output>
+              <input message="inmsg">
+                <assign to="." from="*"></assign>
+              </input>
+            </operation>
+
+            <assign name="Assign" to="count" from="count + 1"></assign>
+            <repeat name="Repeat" ref="loop"/>
+
+          </sequence>
+        </choice>
+      </sequence>
+    </choice>
+    <operation name="SFTP Client End Session Service">
+      <participant name="SFTPClientEndSession"/>
+      <output message="SFTPClientEndSessionServiceTypeInputMessage">
+        <assign to="." from="*"></assign>
+        <assign to="ResponseTimeout">1800</assign>
+        <assign to="SessionToken" from="/ProcessData/SessionToken/text()"></assign>
+      </output>
+      <input message="inmsg">
+        <assign to="." from="*"></assign>
+      </input>
+    </operation>
+
+    <onFault>
+      <sequence name="error_0">
+        <operation name="Business Process Exception">
+          <participant name="BPExceptionService"/>
+          <output message="BPExceptionServiceTypeInputMessage">
+            <assign to="." from="*"></assign>
+            <assign to="exceptionCode" from="concat(&apos;O ARQUIVO: &apos; ,/ProcessData/Files/File[number(/ProcessData/totalFiles/text())]/Name/text() , &apos; NAO FOI PROCESSADO&apos;)"></assign>
+            <assign to="statusReport" from="concat(&apos;O ARQUIVO: &apos; ,/ProcessData/Files/File[number(/ProcessData/totalFiles/text())]/Name/text() , &apos; NAO FOI PROCESSADO&apos;)"></assign>
+          </output>
+          <input message="inmsg">
+            <assign to="." from="*"></assign>
+          </input>
+        </operation>
+
+      </sequence>
+    </onFault>
+  </sequence>
+</process>
